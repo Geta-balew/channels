@@ -443,8 +443,8 @@ const SUPABASE_ANON = "eyJhbGci..."                  // ← anon public key</div
   </div>
 </div>
 
-<!-- Supabase CDN -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Supabase CDN — UMD build -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 
 <script>
 // ══════════════════════════════════════════════════════════
@@ -466,8 +466,17 @@ if (!CONFIGURED) {
   document.getElementById('loadingOverlay').classList.add('hidden');
   document.getElementById('setupBanner').style.display = 'block';
 } else {
-  sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-  initApp();
+  try {
+    const { createClient } = window.supabase;
+    sb = createClient(SUPABASE_URL, SUPABASE_ANON);
+    initApp();
+  } catch(e) {
+    document.getElementById('loadingOverlay').classList.add('hidden');
+    document.getElementById('setupBanner').style.display = 'block';
+    document.getElementById('setupBanner').innerHTML =
+      `<h2>❌ Supabase ኮኔክሽን ስህተት</h2><p style="color:var(--danger);margin-top:8px">${e.message}</p>
+       <p style="color:var(--muted);margin-top:8px">URL እና ANON KEY ትክክለኛ መሆናቸውን አረጋግጡ።</p>`;
+  }
 }
 
 async function loadAll() {
@@ -476,30 +485,52 @@ async function loadAll() {
     sb.from('sellers').select('data'),
     sb.from('buyers').select('data'),
   ]);
-  if (a.data) state.channels = a.data.map(r => r.data);
-  if (b.data) state.sellers  = b.data.map(r => r.data);
-  if (c.data) state.buyers   = c.data.map(r => r.data);
+  if (a.error) throw new Error('channels ጠረጴዛ: ' + a.error.message);
+  if (b.error) throw new Error('sellers ጠረጴዛ: ' + b.error.message);
+  if (c.error) throw new Error('buyers ጠረጴዛ: ' + c.error.message);
+  state.channels = (a.data||[]).map(r => r.data).filter(Boolean);
+  state.sellers  = (b.data||[]).map(r => r.data).filter(Boolean);
+  state.buyers   = (c.data||[]).map(r => r.data).filter(Boolean);
 }
 
 async function initApp() {
   try {
     await loadAll();
   } catch(e) {
-    console.error(e);
+    document.getElementById('loadingOverlay').classList.add('hidden');
+    document.getElementById('setupBanner').style.display = 'block';
+    document.getElementById('setupBanner').innerHTML =
+      `<h2>❌ ዳታቤዝ ስህተት</h2>
+       <p style="color:var(--danger);margin-top:8px;font-size:0.9rem">${e.message}</p>
+       <p style="color:var(--muted);margin-top:12px;font-size:0.85rem">
+         ✅ <b>መፍትሔ:</b> Supabase SQL Editor ውስጥ ያለውን SQL አሄዱ፣ RLS Policy ተሰርቷል ያረጋግጡ።<br>
+         URL: <code>${SUPABASE_URL}</code>
+       </p>`;
+    return;
   }
+
   document.getElementById('loadingOverlay').classList.add('hidden');
   rerenderCurrent();
   populateDLs();
 
-  // Real-time: any change → reload
-  sb.channel('all')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'channels' },
-        async () => { await loadAll(); rerenderCurrent(); populateDLs(); })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'sellers' },
-        async () => { await loadAll(); populateDLs(); if (currentPage==='sellers') renderSellers(); })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'buyers' },
-        async () => { await loadAll(); populateDLs(); if (currentPage==='buyers') renderBuyers(); })
-    .subscribe();
+  // ── Polling fallback: every 12s (always works) ────────────
+  setInterval(async () => {
+    try { await loadAll(); rerenderCurrent(); populateDLs(); } catch {}
+  }, 12000);
+
+  // ── Real-time (optional, needs Supabase Replication ON) ───
+  try {
+    sb.channel('cb-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'channels' },
+          async () => { try { await loadAll(); rerenderCurrent(); populateDLs(); } catch {} })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sellers' },
+          async () => { try { await loadAll(); populateDLs(); if(currentPage==='sellers') renderSellers(); } catch {} })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'buyers' },
+          async () => { try { await loadAll(); populateDLs(); if(currentPage==='buyers') renderBuyers(); } catch {} })
+      .subscribe();
+  } catch(e) {
+    console.warn('Real-time disabled — polling only:', e.message);
+  }
 }
 
 // ── DB HELPERS ────────────────────────────────────────────
