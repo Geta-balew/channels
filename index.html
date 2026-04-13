@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="am" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Channel Broker System</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --primary: #6c63ff; --success: #22c55e; --danger: #ef4444;
+    --warning: #f59e0b; --dark: #1e1e2e; --card: #2a2a3e;
+    --border: #3a3a5c; --text: #e2e8f0; --muted: #94a3b8;
+  }
+  body { background: var(--dark); color: var(--text); font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
+
+  #setupBanner { background: #0f0f1a; border: 2px solid var(--warning); border-radius: 12px; padding: 24px; margin: 20px; display: none; }
+  #setupBanner h2 { color: var(--warning); margin-bottom: 12px; }
+  #setupBanner ol { padding-left: 20px; line-height: 2.2; font-size: 0.87rem; color: var(--text); }
+  #setupBanner code { background: #1e1e2e; padding: 2px 8px; border-radius: 4px; font-family: monospace; color: #a8ff78; font-size: 0.82rem; display: inline-block; }
+  #setupBanner a { color: #60a5fa; }
+  .sql-box { background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin: 12px 0; font-family: monospace; font-size: 0.78rem; color: #a8ff78; white-space: pre; overflow-x: auto; line-height: 1.7; }
+  .copy-btn { background: var(--primary); color: #fff; border: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; margin-top: 6px; }
+
+  #loadingOverlay { position: fixed; inset: 0; background: var(--dark); z-index: 999; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
+  #loadingOverlay.hidden { display: none; }
+  .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  nav { background: var(--card); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+  nav h1 { font-size: 1.2rem; color: var(--primary); }
+  nav span { font-size: 0.75rem; color: var(--muted); }
+  .tabs { display: flex; gap: 4px; padding: 16px 24px 0; background: var(--dark); border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .tab { padding: 8px 16px; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 0.83rem; color: var(--muted); white-space: nowrap; transition: all 0.2s; border: 1px solid transparent; border-bottom: none; }
+  .tab:hover { color: var(--text); background: var(--card); }
+  .tab.active { background: var(--card); color: var(--primary); border-color: var(--border); font-weight: 600; }
+
+  .main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+  .page { display: none; }
+  .page.active { display: block; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .stat-card .label { font-size: 0.72rem; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .stat-card .value { font-size: 1.5rem; font-weight: 700; }
+  .stat-card .sub { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+  .stat-card.highlight { border-color: var(--primary); background: rgba(108,99,255,0.08); }
+  .text-green { color: var(--success); } .text-yellow { color: var(--warning); }
+  .text-red { color: var(--danger); }    .text-blue { color: #60a5fa; }
+  .text-purple { color: var(--primary); }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+  .card-title { font-size: 1rem; font-weight: 600; }
+
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 13px; }
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  .form-group label { font-size: 0.78rem; color: var(--muted); font-weight: 500; }
+  .form-group input, .form-group select, .form-group textarea {
+    background: var(--dark); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 8px 11px; font-size: 0.88rem; outline: none; transition: border-color 0.2s;
+  }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--primary); }
+  .form-group select option { background: var(--dark); }
+  .form-group textarea { resize: vertical; min-height: 70px; }
+  .form-group input[readonly] { opacity: 0.6; }
+
+  .id-box { border: 2px dashed var(--border); border-radius: 8px; padding: 14px; text-align: center; cursor: pointer; transition: border-color 0.2s; background: var(--dark); }
+  .id-box:hover { border-color: var(--primary); }
+  .id-box input[type=file] { display: none; }
+  .id-box .id-preview { max-width: 100%; max-height: 120px; border-radius: 6px; margin-top: 8px; }
+  .id-label { font-size: 0.78rem; color: var(--muted); }
+
+  .btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-size: 0.83rem; font-weight: 600; transition: all 0.2s; }
+  .btn-primary { background: var(--primary); color: #fff; } .btn-primary:hover { background: #5a52e0; }
+  .btn-success { background: var(--success); color: #fff; } .btn-success:hover { background: #16a34a; }
+  .btn-danger  { background: var(--danger);  color: #fff; } .btn-danger:hover  { background: #dc2626; }
+  .btn-warning { background: var(--warning); color: #000; } .btn-warning:hover { background: #d97706; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+  .btn-sm { padding: 4px 10px; font-size: 0.76rem; }
+  .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th { text-align: left; padding: 9px 10px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 9px 10px; border-bottom: 1px solid rgba(58,58,92,0.4); vertical-align: middle; }
+  tr:hover td { background: rgba(108,99,255,0.04); }
+
+  .badge { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
+  .badge-green  { background: rgba(34,197,94,0.15);   color: var(--success); }
+  .badge-red    { background: rgba(239,68,68,0.15);   color: var(--danger); }
+  .badge-yellow { background: rgba(245,158,11,0.15);  color: var(--warning); }
+  .badge-blue   { background: rgba(96,165,250,0.15);  color: #60a5fa; }
+  .badge-purple { background: rgba(108,99,255,0.15);  color: var(--primary); }
+  .badge-gray   { background: rgba(148,163,184,0.12); color: var(--muted); }
+
+  .platform { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; font-size: 0.79rem; }
+  .yt { color: #ff4444; } .tt { color: #69c9d0; } .tg { color: #2ca5e0; } .fb { color: #1877f2; } .ig { color: #e1306c; }
+
+  .filter-bar { display: flex; gap: 9px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+  .filter-bar input, .filter-bar select { background: var(--dark); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 6px 10px; font-size: 0.82rem; outline: none; }
+
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 200; align-items: center; justify-content: center; padding: 16px; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; width: 100%; max-width: 680px; max-height: 92vh; overflow-y: auto; }
+  .modal h2 { font-size: 1.05rem; margin-bottom: 18px; color: var(--primary); display: flex; justify-content: space-between; align-items: center; }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 1.5rem; cursor: pointer; line-height: 1; }
+  .modal-close:hover { color: var(--danger); }
+
+  .section-sep { height: 1px; background: var(--border); margin: 18px 0; }
+  .section-title { font-size: 0.75rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: rgba(108,99,255,0.25); }
+
+  .progress-steps { display: flex; }
+  .step { flex: 1; padding: 5px 4px; text-align: center; font-size: 0.68rem; background: var(--dark); border: 1px solid var(--border); color: var(--muted); }
+  .step:first-child { border-radius: 6px 0 0 6px; }
+  .step:last-child  { border-radius: 0 6px 6px 0; }
+  .step.done { background: rgba(34,197,94,0.18); color: var(--success); border-color: var(--success); }
+  .step.now  { background: rgba(108,99,255,0.18); color: var(--primary); border-color: var(--primary); }
+
+  .channel-option { background: var(--dark); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .channel-option:hover { border-color: var(--primary); }
+  .channel-option.selected { border-color: var(--primary); background: rgba(108,99,255,0.1); }
+  .ch-name { font-weight: 600; font-size: 0.88rem; }
+  .ch-sub  { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
+  .empty { text-align: center; padding: 40px 24px; color: var(--muted); font-size: 0.88rem; }
+  .row-available td:first-child { border-left: 3px solid var(--success); }
+  .row-sold       td:first-child { border-left: 3px solid #60a5fa; }
+
+  @media (max-width: 600px) {
+    .main { padding: 12px; }
+    .tabs { padding: 10px 12px 0; }
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <div style="color:var(--muted);font-size:0.88rem">ዳታ በመጫን ላይ...</div>
+</div>
+
+<!-- SETUP GUIDE -->
+<div id="setupBanner">
+  <h2>⚙️ Supabase Setup ያስፈልጋል — ነፃ ለዘላለም!</h2>
+  <p style="color:var(--muted);margin-bottom:16px;font-size:0.87rem">ሰራተኞቻችሁ ሁሉ shared data እንዲጠቀሙ Supabase (ነፃ) ያዋቅሩ:</p>
+  <ol>
+    <li><a href="https://supabase.com" target="_blank">supabase.com</a> ሂዱ → <b>Start your project</b> → Sign up (GitHub ወይም Email)</li>
+    <li><b>New project</b> → ስም ፃፉ → Database password ምረጡ → Create project</li>
+    <li>ግራ በኩል <b>SQL Editor</b> → <b>New query</b> → ከዚህ በታች ያለውን SQL ቅዱ ➜ <b>Run</b></li>
+  </ol>
+
+  <div class="sql-box" id="setupSql">-- ✅ ይሄንን SQL ቅዱ → Supabase SQL Editor ውስጥ Paste አድርጉ → Run ጠቅ አድርጉ
+
+CREATE TABLE channels (
+  id text PRIMARY KEY,
+  data jsonb NOT NULL,
+  intake_date text,
+  sale_date text
+);
+
+CREATE TABLE sellers (
+  id text PRIMARY KEY,
+  data jsonb NOT NULL
+);
+
+CREATE TABLE buyers (
+  id text PRIMARY KEY,
+  data jsonb NOT NULL
+);
+
+ALTER TABLE channels ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sellers  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE buyers   ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "open" ON channels FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "open" ON sellers  FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "open" ON buyers   FOR ALL TO anon USING (true) WITH CHECK (true);
+
+ALTER PUBLICATION supabase_realtime ADD TABLE channels;
+ALTER PUBLICATION supabase_realtime ADD TABLE sellers;
+ALTER PUBLICATION supabase_realtime ADD TABLE buyers;</div>
+  <button class="copy-btn" onclick="copySql()">📋 SQL ቅዳ</button>
+
+  <ol start="4" style="margin-top:16px">
+    <li>ግራ በኩል <b>Storage</b> → <b>New bucket</b> → Name: <code>ids</code> → Public ✓ → Save</li>
+    <li><b>Project Settings</b> → <b>API</b> → <b>Project URL</b> እና <b>anon public</b> key ቅዱ</li>
+    <li>ይሄንን ፋይል ከፍ → ከዚህ ሁለት ዋጋ ቀይሩ:
+      <div class="sql-box">const SUPABASE_URL  = "https://xxxx.supabase.co"   // ← Project URL
+const SUPABASE_ANON = "eyJhbGci..."                  // ← anon public key</div>
+    </li>
+    <li>ፋይሉን <a href="https://netlify.com" target="_blank">netlify.com</a> → Drop folder ➜ ✅ Link ይሰጥዎታል!</li>
+  </ol>
+</div>
+
+<nav>
+  <h1>📡 Channel Broker</h1>
+  <span id="navDate"></span>
+</nav>
+
+<div class="tabs">
+  <div class="tab active" onclick="showPage('dashboard')">📊 Dashboard</div>
+  <div class="tab"        onclick="showPage('channels')">📋 ቻናሎች</div>
+  <div class="tab"        onclick="showPage('intake')">📥 ቻናል ቀበል</div>
+  <div class="tab"        onclick="showPage('sale')">💰 ቻናል ሸጥ</div>
+  <div class="tab"        onclick="showPage('sellers')">🔴 Sellers</div>
+  <div class="tab"        onclick="showPage('buyers')">🟢 Buyers</div>
+</div>
+
+<div class="main">
+
+  <!-- DASHBOARD -->
+  <div id="page-dashboard" class="page active">
+    <div class="stats-grid" id="statsGrid"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px" id="profitCards"></div>
+    <div class="card">
+      <div class="card-header"><span class="card-title">⚠️ ትኩረት የሚሹ</span></div>
+      <div id="alertsList"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🕐 የቅርብ ጊዜ ቻናሎች</span>
+        <button class="btn btn-outline btn-sm" onclick="showPage('channels')">ሁሉም →</button>
+      </div>
+      <div class="table-wrap" id="recentTable"></div>
+    </div>
+  </div>
+
+  <!-- CHANNELS -->
+  <div id="page-channels" class="page">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">📋 ሁሉም ቻናሎች</span>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-success btn-sm" onclick="showPage('intake')">📥 ቀበል</button>
+          <button class="btn btn-warning btn-sm" onclick="showPage('sale')">💰 ሸጥ</button>
+        </div>
+      </div>
+      <div class="filter-bar">
+        <input type="text" id="searchChannels" placeholder="ቻናል / Seller / Buyer..." oninput="renderChannels()">
+        <select id="filterPlatform" onchange="renderChannels()">
+          <option value="">ሁሉም Platform</option>
+          <option>YouTube</option><option>TikTok</option><option>Telegram</option><option>Facebook</option><option>Instagram</option>
+        </select>
+        <select id="filterStatus" onchange="renderChannels()">
+          <option value="">ሁሉም</option>
+          <option value="available">🟢 Available</option>
+          <option value="sold">🔵 Sold</option>
+          <option value="unpaid">❌ ብር ያልተላኩ</option>
+          <option value="pending_t">⏳ Transfer Pending</option>
+        </select>
+      </div>
+      <div class="table-wrap" id="channelsTable"></div>
+    </div>
+  </div>
+
+  <!-- INTAKE -->
+  <div id="page-intake" class="page">
+    <div class="card">
+      <div class="card-header"><span class="card-title">📥 ቻናል ከሻጭ ቀበል</span></div>
+      <div class="section-title">📡 የቻናሉ ዝርዝር</div>
+      <div class="form-grid">
+        <div class="form-group"><label>Platform *</label>
+          <select id="i_platform"><option value="">ምረጥ...</option><option>YouTube</option><option>TikTok</option><option>Telegram</option><option>Facebook</option><option>Instagram</option></select>
+        </div>
+        <div class="form-group"><label>የቻናሉ ስም / URL *</label><input id="i_channelName" placeholder="@channelname"></div>
+        <div class="form-group"><label>Subscribers / Followers</label><input id="i_followers" placeholder="50K, 1.2M..."></div>
+        <div class="form-group"><label>ቻናሉ የተቀበልነበት ቀን *</label><input type="date" id="i_intakeDate"></div>
+        <div class="form-group" style="grid-column:span 2"><label>የቻናሉ ሙሉ ዝርዝር / ማስታወሻ</label>
+          <textarea id="i_notes" placeholder="ዕድሜ፣ ይዘት፣ ቋንቋ፣ monetization ሁኔታ..."></textarea>
+        </div>
+      </div>
+      <div class="section-sep"></div>
+      <div class="section-title">🔴 Seller (ሻጭ) መረጃ</div>
+      <div class="form-grid">
+        <div class="form-group"><label>ሙሉ ስም *</label><input id="i_sellerName" list="sellersDL" placeholder="ሙሉ ስም"><datalist id="sellersDL"></datalist></div>
+        <div class="form-group"><label>ስልክ</label><input id="i_sellerPhone" placeholder="+251..."></div>
+        <div class="form-group"><label>ባንክ + አካውንት *</label><input id="i_sellerBank" placeholder="CBE 1000123456789"></div>
+        <div class="form-group"><label>Telegram</label><input id="i_sellerTelegram" placeholder="@username"></div>
+        <div class="form-group"><label>የመታወቂያ አይነት *</label>
+          <select id="i_sellerIdType"><option value="">ምረጥ...</option><option value="national">ብሔራዊ መታወቂያ</option><option value="kebele">የቀበሌ መታወቂያ</option><option value="passport">ፓስፖርት</option><option value="driving">መኪና ፈቃድ</option></select>
+        </div>
+        <div class="form-group"><label>የመታወቂያ ቁጥር *</label><input id="i_sellerIdNum" placeholder="ID ቁጥር"></div>
+        <div class="form-group"><label>ቻናሉ የተወሰደበት ዋጋ (ETB) *</label><input type="number" id="i_buyPrice" placeholder="0"></div>
+        <div class="form-group"><label>ለሻጩ ብር ሁኔታ</label>
+          <select id="i_paymentStatus"><option value="not_paid">❌ ብር አልተላከም</option><option value="paid">✅ ብር ተልኳል</option></select>
+        </div>
+      </div>
+      <div class="section-sep"></div>
+      <div class="section-title">🪪 የሻጩ መታወቂያ ፎቶ (አማራጭ)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:13px">
+        <div class="form-group"><label>ፊት ለፊት</label>
+          <div class="id-box" onclick="document.getElementById('i_idFront').click()">
+            <div class="id-label">📎 ፎቶ ምረጥ (ፊት)</div>
+            <input type="file" id="i_idFront" accept="image/*" onchange="previewImg(this,'i_prevFront')">
+            <img id="i_prevFront" class="id-preview" style="display:none">
+          </div>
+        </div>
+        <div class="form-group"><label>ጀርባ</label>
+          <div class="id-box" onclick="document.getElementById('i_idBack').click()">
+            <div class="id-label">📎 ፎቶ ምረጥ (ጀርባ)</div>
+            <input type="file" id="i_idBack" accept="image/*" onchange="previewImg(this,'i_prevBack')">
+            <img id="i_prevBack" class="id-preview" style="display:none">
+          </div>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" id="intakeBtn" onclick="saveIntake()">💾 ቀበል & ምዝግብ</button>
+        <button class="btn btn-outline" onclick="resetIntake()">🗑️ አጽዳ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SALE -->
+  <div id="page-sale" class="page">
+    <div class="card">
+      <div class="card-header"><span class="card-title">💰 ቻናል ሸጥ</span></div>
+      <div class="section-title">📡 የትኛውን ቻናል?</div>
+      <div id="availableList"></div>
+      <input type="hidden" id="s_channelId">
+      <div class="section-sep"></div>
+      <div class="section-title">🟢 Buyer (ገዢ) መረጃ</div>
+      <div class="form-grid">
+        <div class="form-group"><label>ሙሉ ስም *</label><input id="s_buyerName" list="buyersDL" placeholder="ሙሉ ስም"><datalist id="buyersDL"></datalist></div>
+        <div class="form-group"><label>ስልክ</label><input id="s_buyerPhone" placeholder="+251..."></div>
+        <div class="form-group"><label>ባንክ + አካውንት</label><input id="s_buyerBank" placeholder="CBE 1000987654321"></div>
+        <div class="form-group"><label>Telegram</label><input id="s_buyerTelegram" placeholder="@username"></div>
+        <div class="form-group"><label>የመታወቂያ አይነት *</label>
+          <select id="s_buyerIdType"><option value="">ምረጥ...</option><option value="national">ብሔራዊ መታወቂያ</option><option value="kebele">የቀበሌ መታወቂያ</option><option value="passport">ፓስፖርት</option><option value="driving">መኪና ፈቃድ</option></select>
+        </div>
+        <div class="form-group"><label>የመታወቂያ ቁጥር *</label><input id="s_buyerIdNum" placeholder="ID ቁጥር"></div>
+      </div>
+      <div class="section-sep"></div>
+      <div class="section-title">💵 ዋጋ እና ቀን</div>
+      <div class="form-grid">
+        <div class="form-group"><label>ቻናሉ የተወሰደበት ዋጋ</label><input type="number" id="s_buyPrice" readonly placeholder="—"></div>
+        <div class="form-group"><label>ቻናሉ የተሸጠበት ዋጋ (ETB) *</label><input type="number" id="s_sellPrice" placeholder="0" oninput="calcProfit()"></div>
+        <div class="form-group"><label>ትርፍ (ETB)</label><input type="number" id="s_profit" readonly placeholder="ራሱ ይሰላል"></div>
+        <div class="form-group"><label>ቻናሉ የተሸጠበት ቀን *</label><input type="date" id="s_saleDate"></div>
+      </div>
+      <div class="section-sep"></div>
+      <div class="section-title">⚙️ Transfer</div>
+      <div class="form-grid">
+        <div class="form-group"><label>Transfer ሁኔታ</label>
+          <select id="s_transferStatus"><option value="pending">⏳ Pending</option><option value="completed">✅ ተጠናቋል</option></select>
+        </div>
+        <div class="form-group"><label>Transfer አይነት</label>
+          <select id="s_transferType"><option value="automatic">🤖 Automatic</option><option value="owner_7days">👤 Owner — After 7 Days</option></select>
+        </div>
+      </div>
+      <div class="section-sep"></div>
+      <div class="section-title">🪪 የገዢው መታወቂያ ፎቶ (አማራጭ)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:13px">
+        <div class="form-group"><label>ፊት ለፊት</label>
+          <div class="id-box" onclick="document.getElementById('s_idFront').click()">
+            <div class="id-label">📎 ፎቶ ምረጥ (ፊት)</div>
+            <input type="file" id="s_idFront" accept="image/*" onchange="previewImg(this,'s_prevFront')">
+            <img id="s_prevFront" class="id-preview" style="display:none">
+          </div>
+        </div>
+        <div class="form-group"><label>ጀርባ</label>
+          <div class="id-box" onclick="document.getElementById('s_idBack').click()">
+            <div class="id-label">📎 ፎቶ ምረጥ (ጀርባ)</div>
+            <input type="file" id="s_idBack" accept="image/*" onchange="previewImg(this,'s_prevBack')">
+            <img id="s_prevBack" class="id-preview" style="display:none">
+          </div>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-warning" id="saleBtn" onclick="saveSale()">💰 ሸጥ & ምዝግብ</button>
+        <button class="btn btn-outline" onclick="resetSale()">🗑️ አጽዳ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SELLERS -->
+  <div id="page-sellers" class="page">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🔴 Sellers</span>
+        <button class="btn btn-primary btn-sm" onclick="openModal('sellerModal')">+ አዲስ Seller</button>
+      </div>
+      <div class="table-wrap" id="sellersTable"></div>
+    </div>
+  </div>
+
+  <!-- BUYERS -->
+  <div id="page-buyers" class="page">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🟢 Buyers</span>
+        <button class="btn btn-primary btn-sm" onclick="openModal('buyerModal')">+ አዲስ Buyer</button>
+      </div>
+      <div class="table-wrap" id="buyersTable"></div>
+    </div>
+  </div>
+</div>
+
+<!-- DETAIL MODAL -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal">
+    <h2><span id="modalTitle">ቻናል</span><button class="modal-close" onclick="closeModal('detailModal')">×</button></h2>
+    <div id="modalContent"></div>
+  </div>
+</div>
+
+<!-- SELLER MODAL -->
+<div class="modal-overlay" id="sellerModal">
+  <div class="modal">
+    <h2>🔴 አዲስ Seller<button class="modal-close" onclick="closeModal('sellerModal')">×</button></h2>
+    <div class="form-grid">
+      <div class="form-group"><label>ሙሉ ስም *</label><input id="sm_name"></div>
+      <div class="form-group"><label>ስልክ</label><input id="sm_phone" placeholder="+251..."></div>
+      <div class="form-group"><label>ባንክ + አካውንት</label><input id="sm_bank"></div>
+      <div class="form-group"><label>Telegram</label><input id="sm_tg" placeholder="@username"></div>
+      <div class="form-group"><label>ID አይነት</label>
+        <select id="sm_idtype"><option value="">ምረጥ</option><option value="national">National ID</option><option value="kebele">Kebele ID</option><option value="passport">Passport</option></select>
+      </div>
+      <div class="form-group"><label>ID ቁጥር</label><input id="sm_idnum"></div>
+    </div>
+    <div class="btn-group"><button class="btn btn-primary" onclick="addSeller()">💾 ምዝግብ</button></div>
+  </div>
+</div>
+
+<!-- BUYER MODAL -->
+<div class="modal-overlay" id="buyerModal">
+  <div class="modal">
+    <h2>🟢 አዲስ Buyer<button class="modal-close" onclick="closeModal('buyerModal')">×</button></h2>
+    <div class="form-grid">
+      <div class="form-group"><label>ሙሉ ስም *</label><input id="bm_name"></div>
+      <div class="form-group"><label>ስልክ</label><input id="bm_phone" placeholder="+251..."></div>
+      <div class="form-group"><label>ባንክ + አካውንት</label><input id="bm_bank"></div>
+      <div class="form-group"><label>Telegram</label><input id="bm_tg" placeholder="@username"></div>
+      <div class="form-group"><label>ID አይነት</label>
+        <select id="bm_idtype"><option value="">ምረጥ</option><option value="national">National ID</option><option value="kebele">Kebele ID</option><option value="passport">Passport</option></select>
+      </div>
+      <div class="form-group"><label>ID ቁጥር</label><input id="bm_idnum"></div>
+    </div>
+    <div class="btn-group"><button class="btn btn-primary" onclick="addBuyer()">💾 ምዝግብ</button></div>
+  </div>
+</div>
+
+<!-- Supabase CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+// ══════════════════════════════════════════════════════════
+// ★  SUPABASE CONFIG — ሁለቱን ዋጋዎች ብቻ ቀይሩ  ★
+// ══════════════════════════════════════════════════════════
+const SUPABASE_URL  = "REPLACE_WITH_YOUR_PROJECT_URL";   // https://xxxx.supabase.co
+const SUPABASE_ANON = "REPLACE_WITH_YOUR_ANON_KEY";      // eyJhbGci...
+// ══════════════════════════════════════════════════════════
+
+const CONFIGURED = !SUPABASE_URL.startsWith('REPLACE');
+
+// ── STATE ─────────────────────────────────────────────────
+const state = { channels: [], sellers: [], buyers: [] };
+let currentPage = 'dashboard';
+let sb; // supabase client
+
+// ── INIT ──────────────────────────────────────────────────
+if (!CONFIGURED) {
+  document.getElementById('loadingOverlay').classList.add('hidden');
+  document.getElementById('setupBanner').style.display = 'block';
+} else {
+  sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+  initApp();
+}
+
+async function loadAll() {
+  const [a, b, c] = await Promise.all([
+    sb.from('channels').select('data').order('intake_date', { ascending: false }),
+    sb.from('sellers').select('data'),
+    sb.from('buyers').select('data'),
+  ]);
+  if (a.data) state.channels = a.data.map(r => r.data);
+  if (b.data) state.sellers  = b.data.map(r => r.data);
+  if (c.data) state.buyers   = c.data.map(r => r.data);
+}
+
+async function initApp() {
+  try {
+    await loadAll();
+  } catch(e) {
+    console.error(e);
+  }
+  document.getElementById('loadingOverlay').classList.add('hidden');
+  rerenderCurrent();
+  populateDLs();
+
+  // Real-time: any change → reload
+  sb.channel('all')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'channels' },
+        async () => { await loadAll(); rerenderCurrent(); populateDLs(); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'sellers' },
+        async () => { await loadAll(); populateDLs(); if (currentPage==='sellers') renderSellers(); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'buyers' },
+        async () => { await loadAll(); populateDLs(); if (currentPage==='buyers') renderBuyers(); })
+    .subscribe();
+}
+
+// ── DB HELPERS ────────────────────────────────────────────
+async function dbSet(table, id, data) {
+  const row = { id, data };
+  if (table === 'channels') { row.intake_date = data.intakeDate||null; row.sale_date = data.saleDate||null; }
+  const { error } = await sb.from(table).upsert(row);
+  if (error) throw error;
+}
+
+async function dbUpd(table, id, updates) {
+  const list = state[table];
+  const existing = list.find(x => x.id === id) || {};
+  await dbSet(table, id, { ...existing, ...updates });
+}
+
+async function dbDel(table, id) {
+  const { error } = await sb.from(table).delete().eq('id', id);
+  if (error) throw error;
+}
+
+async function uploadImg(inputId, path) {
+  const input = document.getElementById(inputId);
+  if (!input?.files?.[0]) return null;
+  try {
+    const file = input.files[0];
+    const fullPath = path + '_' + uid();
+    await sb.storage.from('ids').upload(fullPath, file, { upsert: true });
+    const { data: { publicUrl } } = sb.storage.from('ids').getPublicUrl(fullPath);
+    return publicUrl;
+  } catch(e) { console.warn('Upload failed', e); return null; }
+}
+
+// ── NAVIGATION ────────────────────────────────────────────
+const PAGES = ['dashboard','channels','intake','sale','sellers','buyers'];
+function showPage(name) {
+  currentPage = name;
+  PAGES.forEach((p,i) => {
+    document.getElementById('page-'+p).classList.toggle('active', p===name);
+    document.querySelectorAll('.tab')[i].classList.toggle('active', p===name);
+  });
+  if (name==='dashboard') renderDashboard();
+  if (name==='channels')  renderChannels();
+  if (name==='intake')    { populateDLs(); setToday('i_intakeDate'); }
+  if (name==='sale')      { populateDLs(); setToday('s_saleDate'); renderAvailableList(); }
+  if (name==='sellers')   renderSellers();
+  if (name==='buyers')    renderBuyers();
+}
+
+function rerenderCurrent() {
+  if (currentPage==='dashboard') renderDashboard();
+  if (currentPage==='channels')  renderChannels();
+  if (currentPage==='sellers')   renderSellers();
+  if (currentPage==='buyers')    renderBuyers();
+  if (currentPage==='sale')      renderAvailableList();
+}
+
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// ── HELPERS ───────────────────────────────────────────────
+const uid   = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+const fmt   = n  => (!n&&n!==0) ? '—' : Number(n).toLocaleString()+' ETB';
+const fmtD  = d  => !d ? '—' : new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+const gv    = id => document.getElementById(id)?.value?.trim()||'';
+const sv    = (id,v) => { const el=document.getElementById(id); if(el) el.value=v||''; };
+const setToday = id => { const el=document.getElementById(id); if(el&&!el.value) el.value=new Date().toISOString().slice(0,10); };
+
+function pEmoji(p) { return {YouTube:'▶️',TikTok:'🎵',Telegram:'✈️',Facebook:'👤',Instagram:'📷'}[p]||'📡'; }
+function pCls(p)   { return {YouTube:'yt',TikTok:'tt',Telegram:'tg',Facebook:'fb',Instagram:'ig'}[p]||''; }
+function idLbl(t)  { return {national:'National ID',kebele:'Kebele ID',passport:'Passport',driving:'Driving License'}[t]||t||'—'; }
+
+function populateDLs() {
+  const sd=document.getElementById('sellersDL'); if(sd) sd.innerHTML=state.sellers.map(s=>`<option value="${s.name}">`).join('');
+  const bd=document.getElementById('buyersDL');  if(bd) bd.innerHTML=state.buyers.map(b=>`<option value="${b.name}">`).join('');
+}
+
+function previewImg(input, imgId) {
+  if (!input.files?.[0]) return;
+  const r=new FileReader();
+  r.onload=e=>{ const img=document.getElementById(imgId); img.src=e.target.result; img.style.display='block'; };
+  r.readAsDataURL(input.files[0]);
+}
+
+function setBtn(id, loading, label) {
+  const b=document.getElementById(id); if(!b) return;
+  b.disabled=loading; b.textContent=loading?'⏳ ...':label;
+}
+
+function copySql() {
+  const sql=document.getElementById('setupSql').textContent;
+  navigator.clipboard.writeText(sql).then(()=>alert('✅ SQL ተቀደ!'));
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────
+function renderDashboard() {
+  const chs=state.channels, sold=chs.filter(c=>c.saleDate), avail=chs.filter(c=>!c.saleDate);
+  const totalProfit  = sold.reduce((s,c)=>s+(parseFloat(c.profit)||0),0);
+  const totalRevenue = sold.reduce((s,c)=>s+(parseFloat(c.sellPrice)||0),0);
+  const totalCost    = chs.reduce((s,c)=>s+(parseFloat(c.buyPrice)||0),0);
+  const unpaid       = chs.filter(c=>c.paymentStatus==='not_paid'&&(c.saleDate||c.buyPrice)).length;
+  const pendingTr    = sold.filter(c=>c.transferStatus!=='completed').length;
+
+  const now=new Date();
+  const wk=new Date(now); wk.setDate(now.getDate()-now.getDay()); wk.setHours(0,0,0,0);
+  const mo=new Date(now.getFullYear(),now.getMonth(),1);
+  const weekProfit  = sold.filter(c=>new Date(c.saleDate)>=wk).reduce((s,c)=>s+(parseFloat(c.profit)||0),0);
+  const monthProfit = sold.filter(c=>new Date(c.saleDate)>=mo).reduce((s,c)=>s+(parseFloat(c.profit)||0),0);
+
+  document.getElementById('statsGrid').innerHTML = `
+    <div class="stat-card"><div class="label">ጠቅላላ ቻናሎች</div><div class="value text-blue">${chs.length}</div><div class="sub">${avail.length} Available · ${sold.length} Sold</div></div>
+    <div class="stat-card"><div class="label">ጠቅላላ ትርፍ</div><div class="value text-green">${fmt(totalProfit)}</div><div class="sub">ሁሉም ሽያጮች</div></div>
+    <div class="stat-card"><div class="label">ብር ያልተላካ</div><div class="value text-red">${unpaid}</div><div class="sub">ለሻጮቹ</div></div>
+    <div class="stat-card"><div class="label">Transfer Pending</div><div class="value text-yellow">${pendingTr}</div><div class="sub">ያልተጠናቀቁ</div></div>
+    <div class="stat-card"><div class="label">ጠቅላላ ወጪ</div><div class="value">${fmt(totalCost)}</div><div class="sub">ከሻጮቹ</div></div>
+    <div class="stat-card"><div class="label">ጠቅላላ ገቢ</div><div class="value">${fmt(totalRevenue)}</div><div class="sub">ከገዢዎቹ</div></div>`;
+
+  document.getElementById('profitCards').innerHTML = `
+    <div class="stat-card highlight">
+      <div class="label">📅 የዚህ ሳምንት ትርፍ</div>
+      <div class="value text-purple">${fmt(weekProfit)}</div>
+      <div class="sub">ከ ${wk.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})} ጀምሮ</div>
+    </div>
+    <div class="stat-card highlight">
+      <div class="label">🗓️ የዚህ ወር ትርፍ</div>
+      <div class="value text-purple">${fmt(monthProfit)}</div>
+      <div class="sub">${now.toLocaleDateString('en-GB',{month:'long',year:'numeric'})}</div>
+    </div>`;
+
+  const alerts=[];
+  chs.forEach(ch=>{
+    if (ch.paymentStatus==='not_paid'&&ch.saleDate)
+      alerts.push(`<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <span>💸 <b>${ch.channelName}</b> → ለ <b>${ch.sellerName}</b> ብር አልተላከም</span>
+        <button class="btn btn-success btn-sm" onclick="markPaid('${ch.id}')">✅ ብር ተልኳል</button></div>`);
+    if (ch.transferStatus==='pending'&&ch.saleDate&&ch.buyerName)
+      alerts.push(`<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <span>📦 <b>${ch.channelName}</b> → ለ <b>${ch.buyerName}</b> Transfer Pending</span>
+        <button class="btn btn-primary btn-sm" onclick="markTransferred('${ch.id}')">✅ Transfer ✓</button></div>`);
+  });
+  document.getElementById('alertsList').innerHTML = alerts.length ? alerts.join('') : '<div style="padding:14px;color:var(--muted)">✅ ሁሉም ጥሩ ነው</div>';
+  document.getElementById('recentTable').innerHTML = buildTable([...chs].slice(0,6), true);
+}
+
+function markPaid(id)        { dbUpd('channels',id,{paymentStatus:'paid'}); }
+function markTransferred(id) { dbUpd('channels',id,{transferStatus:'completed'}); }
+
+// ── CHANNELS TABLE ────────────────────────────────────────
+function buildTable(chs, mini=false) {
+  if (!chs.length) return '<div class="empty">ምንም ቻናል አልተገኘም</div>';
+  return `<table><thead><tr>
+    <th>Platform</th><th>ቻናል</th>${mini?'':'<th>Followers</th>'}
+    <th>Seller</th><th>Buyer</th><th>የተወሰደ</th><th>ተቀበልን</th><th>ተሸጠ</th>
+    <th>ትርፍ</th><th>ብር</th><th>Transfer</th>${mini?'':'<th>ድርጊቶች</th>'}
+  </tr></thead><tbody>${chs.map(ch=>`
+    <tr class="${ch.saleDate?'row-sold':'row-available'}">
+      <td><span class="platform ${pCls(ch.platform)}">${pEmoji(ch.platform)} ${ch.platform}</span></td>
+      <td><b>${ch.channelName}</b></td>
+      ${mini?'':'<td>'+(ch.followers||'—')+'</td>'}
+      <td>${ch.sellerName||'—'}</td>
+      <td>${ch.buyerName||'<span class="badge badge-gray">Available</span>'}</td>
+      <td>${fmt(ch.buyPrice)}</td>
+      <td style="font-size:0.75rem">${fmtD(ch.intakeDate)}</td>
+      <td style="font-size:0.75rem">${ch.saleDate?fmtD(ch.saleDate):'—'}</td>
+      <td class="${ch.profit>0?'text-green':''}">${ch.profit?fmt(ch.profit):'—'}</td>
+      <td>${ch.paymentStatus==='paid'?'<span class="badge badge-green">✅</span>':'<span class="badge badge-red">❌</span>'}</td>
+      <td>${ch.transferStatus==='completed'?'<span class="badge badge-green">✅</span>':'<span class="badge badge-yellow">⏳</span>'}</td>
+      ${mini?'':`<td><div style="display:flex;gap:4px">
+        <button class="btn btn-outline btn-sm" onclick="viewChannel('${ch.id}')">👁️</button>
+        <button class="btn btn-outline btn-sm" onclick="editIntake('${ch.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="delCh('${ch.id}')">🗑️</button>
+      </div></td>`}
+    </tr>`).join('')}</tbody></table>`;
+}
+
+function renderChannels() {
+  let chs=state.channels;
+  const q=( document.getElementById('searchChannels')?.value||'').toLowerCase();
+  const p=  document.getElementById('filterPlatform')?.value||'';
+  const s=  document.getElementById('filterStatus')?.value||'';
+  if (q) chs=chs.filter(c=>(c.channelName+c.sellerName+(c.buyerName||'')).toLowerCase().includes(q));
+  if (p) chs=chs.filter(c=>c.platform===p);
+  if (s==='available') chs=chs.filter(c=>!c.saleDate);
+  if (s==='sold')      chs=chs.filter(c=>!!c.saleDate);
+  if (s==='unpaid')    chs=chs.filter(c=>c.paymentStatus==='not_paid');
+  if (s==='pending_t') chs=chs.filter(c=>c.transferStatus==='pending');
+  document.getElementById('channelsTable').innerHTML=buildTable(chs);
+}
+
+// ── INTAKE ────────────────────────────────────────────────
+async function saveIntake(editId=null) {
+  const platform=gv('i_platform'), channelName=gv('i_channelName'),
+        sellerName=gv('i_sellerName'), buyPrice=gv('i_buyPrice'), intakeDate=gv('i_intakeDate');
+  if (!platform)    return alert('Platform ምረጥ!');
+  if (!channelName) return alert('የቻናሉ ስም ፃፍ!');
+  if (!sellerName)  return alert('Seller ስም ፃፍ!');
+  if (!buyPrice)    return alert('ዋጋ ፃፍ!');
+  if (!intakeDate)  return alert('ቀን ፃፍ!');
+
+  setBtn('intakeBtn', true);
+  try {
+    const chId = editId||uid();
+    const frontUrl = await uploadImg('i_idFront', `seller_${chId}_front`);
+    const backUrl  = await uploadImg('i_idBack',  `seller_${chId}_back`);
+    const ex = editId ? state.channels.find(c=>c.id===editId) : null;
+
+    const ch = {
+      id:chId, platform, channelName,
+      followers:gv('i_followers'), notes:gv('i_notes'),
+      sellerName, sellerPhone:gv('i_sellerPhone'),
+      sellerBank:gv('i_sellerBank'), sellerTelegram:gv('i_sellerTelegram'),
+      sellerIdType:gv('i_sellerIdType'), sellerIdNum:gv('i_sellerIdNum'),
+      sellerIdFront: frontUrl||(ex?.sellerIdFront||null),
+      sellerIdBack:  backUrl ||(ex?.sellerIdBack||null),
+      buyPrice:parseFloat(buyPrice)||0, paymentStatus:gv('i_paymentStatus')||'not_paid', intakeDate,
+      buyerName:ex?.buyerName||'', buyerPhone:ex?.buyerPhone||'', buyerBank:ex?.buyerBank||'',
+      buyerTelegram:ex?.buyerTelegram||'', buyerIdType:ex?.buyerIdType||'',
+      buyerIdNum:ex?.buyerIdNum||'', buyerIdFront:ex?.buyerIdFront||null, buyerIdBack:ex?.buyerIdBack||null,
+      sellPrice:ex?.sellPrice||0, profit:ex?.profit||0, saleDate:ex?.saleDate||'',
+      transferStatus:ex?.transferStatus||'pending', transferType:ex?.transferType||'automatic',
+    };
+
+    await dbSet('channels', chId, ch);
+    if (!state.sellers.find(s=>s.name===sellerName))
+      await dbSet('sellers', uid(), {name:sellerName,phone:ch.sellerPhone,bank:ch.sellerBank,
+        telegram:ch.sellerTelegram,idType:ch.sellerIdType,idNum:ch.sellerIdNum});
+
+    resetIntake();
+    showPage('channels');
+  } catch(e) { alert('❌ ስህተት: '+e.message); }
+  finally { setBtn('intakeBtn', false, '💾 ቀበል & ምዝግብ'); }
+}
+
+function resetIntake() {
+  ['i_platform','i_channelName','i_followers','i_notes','i_sellerName','i_sellerPhone',
+   'i_sellerBank','i_sellerTelegram','i_sellerIdType','i_sellerIdNum','i_buyPrice'].forEach(id=>sv(id,''));
+  sv('i_paymentStatus','not_paid');
+  document.getElementById('i_intakeDate').value=new Date().toISOString().slice(0,10);
+  ['i_prevFront','i_prevBack'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+  const b=document.getElementById('intakeBtn'); if(b){b.textContent='💾 ቀበል & ምዝግብ';b.onclick=()=>saveIntake();}
+}
+
+function editIntake(id) {
+  const ch=state.channels.find(c=>c.id===id); if(!ch) return;
+  showPage('intake');
+  setTimeout(()=>{
+    sv('i_platform',ch.platform);sv('i_channelName',ch.channelName);sv('i_followers',ch.followers);
+    sv('i_notes',ch.notes);sv('i_sellerName',ch.sellerName);sv('i_sellerPhone',ch.sellerPhone);
+    sv('i_sellerBank',ch.sellerBank);sv('i_sellerTelegram',ch.sellerTelegram);
+    sv('i_sellerIdType',ch.sellerIdType);sv('i_sellerIdNum',ch.sellerIdNum);
+    sv('i_buyPrice',ch.buyPrice);sv('i_paymentStatus',ch.paymentStatus);
+    document.getElementById('i_intakeDate').value=ch.intakeDate||'';
+    if(ch.sellerIdFront){const img=document.getElementById('i_prevFront');img.src=ch.sellerIdFront;img.style.display='block';}
+    if(ch.sellerIdBack) {const img=document.getElementById('i_prevBack'); img.src=ch.sellerIdBack; img.style.display='block';}
+    const b=document.getElementById('intakeBtn'); b.textContent='💾 አዘምን'; b.onclick=()=>saveIntake(ch.id);
+  },50);
+  closeModal('detailModal');
+}
+
+// ── SALE ──────────────────────────────────────────────────
+function renderAvailableList() {
+  const avail=state.channels.filter(c=>!c.saleDate);
+  const div=document.getElementById('availableList'); if(!div) return;
+  if(!avail.length){div.innerHTML='<div class="empty">ምንም Available ቻናል — አስቀድሞ 📥 ቀበል</div>';sv('s_channelId','');return;}
+  div.innerHTML=avail.map(ch=>`
+    <div class="channel-option" id="co_${ch.id}" onclick="selectCh('${ch.id}')">
+      <div>
+        <div class="ch-name"><span class="platform ${pCls(ch.platform)}">${pEmoji(ch.platform)}</span> ${ch.channelName}</div>
+        <div class="ch-sub">${ch.platform} · ${ch.followers||'—'} · ተቀበልን: ${fmtD(ch.intakeDate)} · ዋጋ: ${fmt(ch.buyPrice)}</div>
+      </div>
+      <span class="badge badge-green">Available</span>
+    </div>`).join('');
+}
+
+function selectCh(id) {
+  document.querySelectorAll('.channel-option').forEach(el=>el.classList.remove('selected'));
+  const el=document.getElementById('co_'+id); if(el) el.classList.add('selected');
+  sv('s_channelId',id);
+  const ch=state.channels.find(c=>c.id===id);
+  if(ch){sv('s_buyPrice',ch.buyPrice);calcProfit();}
+}
+
+function calcProfit() {
+  const buy=parseFloat(gv('s_buyPrice'))||0, sell=parseFloat(gv('s_sellPrice'))||0;
+  sv('s_profit', sell>0?(sell-buy).toFixed(2):'');
+}
+
+async function saveSale() {
+  const channelId=gv('s_channelId'), buyerName=gv('s_buyerName'),
+        sellPrice=gv('s_sellPrice'), saleDate=gv('s_saleDate'),
+        buyerIdType=gv('s_buyerIdType'), buyerIdNum=gv('s_buyerIdNum');
+  if (!channelId)   return alert('ቻናል ምረጥ!');
+  if (!buyerName)   return alert('Buyer ስም ፃፍ!');
+  if (!sellPrice)   return alert('ዋጋ ፃፍ!');
+  if (!saleDate)    return alert('ቀን ፃፍ!');
+  if (!buyerIdType) return alert('Buyer ID አይነት ምረጥ!');
+  if (!buyerIdNum)  return alert('Buyer ID ቁጥር ፃፍ!');
+
+  setBtn('saleBtn', true);
+  try {
+    const frontUrl=await uploadImg('s_idFront',`buyer_${channelId}_front`);
+    const backUrl =await uploadImg('s_idBack', `buyer_${channelId}_back`);
+    const ex=state.channels.find(c=>c.id===channelId);
+    const profit=parseFloat(gv('s_profit'))||0;
+    const bp=gv('s_buyerPhone'),bb=gv('s_buyerBank'),bt=gv('s_buyerTelegram');
+
+    await dbUpd('channels', channelId, {
+      buyerName,buyerPhone:bp,buyerBank:bb,buyerTelegram:bt,
+      buyerIdType,buyerIdNum,
+      buyerIdFront:frontUrl||(ex?.buyerIdFront||null),
+      buyerIdBack: backUrl ||(ex?.buyerIdBack||null),
+      sellPrice:parseFloat(sellPrice)||0, profit, saleDate,
+      transferStatus:gv('s_transferStatus')||'pending',
+      transferType:gv('s_transferType')||'automatic',
+    });
+
+    if (!state.buyers.find(b=>b.name===buyerName))
+      await dbSet('buyers', uid(), {name:buyerName,phone:bp,bank:bb,telegram:bt,idType:buyerIdType,idNum:buyerIdNum});
+
+    resetSale(); showPage('channels');
+  } catch(e) { alert('❌ ስህተት: '+e.message); }
+  finally { setBtn('saleBtn', false, '💰 ሸጥ & ምዝግብ'); }
+}
+
+function resetSale() {
+  ['s_buyerName','s_buyerPhone','s_buyerBank','s_buyerTelegram','s_buyerIdType',
+   's_buyerIdNum','s_sellPrice','s_profit','s_buyPrice','s_channelId'].forEach(id=>sv(id,''));
+  sv('s_transferStatus','pending'); sv('s_transferType','automatic');
+  document.getElementById('s_saleDate').value=new Date().toISOString().slice(0,10);
+  ['s_prevFront','s_prevBack'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+  renderAvailableList();
+}
+
+// ── VIEW CHANNEL ──────────────────────────────────────────
+function viewChannel(id) {
+  const ch=state.channels.find(c=>c.id===id); if(!ch) return;
+  document.getElementById('modalTitle').textContent=`${pEmoji(ch.platform)} ${ch.channelName}`;
+  const sold=!!ch.saleDate;
+  document.getElementById('modalContent').innerHTML=`
+    <div class="progress-steps" style="margin-bottom:16px">
+      <div class="step done">1. ቀበልን</div>
+      <div class="step ${sold?'done':'now'}">2. ${sold?'ተሸጠ':'Available'}</div>
+      <div class="step ${ch.paymentStatus==='paid'?'done':sold?'now':''}">3. ብር</div>
+      <div class="step ${ch.transferStatus==='completed'?'done':sold?'now':''}">4. Transfer</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.83rem">
+      <div><span style="color:var(--muted)">Platform:</span><br><b>${ch.platform}</b></div>
+      <div><span style="color:var(--muted)">Followers:</span><br>${ch.followers||'—'}</div>
+      <div style="grid-column:span 2"><span style="color:var(--muted)">ማስታወሻ:</span><br>${ch.notes||'—'}</div>
+    </div>
+    <div class="section-sep"></div>
+    <div class="section-title">🔴 Seller</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.83rem">
+      <div><span style="color:var(--muted)">ስም:</span><br><b>${ch.sellerName||'—'}</b></div>
+      <div><span style="color:var(--muted)">ስልክ:</span><br>${ch.sellerPhone||'—'}</div>
+      <div><span style="color:var(--muted)">ባንክ:</span><br>${ch.sellerBank||'—'}</div>
+      <div><span style="color:var(--muted)">Telegram:</span><br>${ch.sellerTelegram||'—'}</div>
+      <div><span style="color:var(--muted)">ID:</span><br>${idLbl(ch.sellerIdType)} — ${ch.sellerIdNum||'—'}</div>
+      <div><span style="color:var(--muted)">ዋጋ (ተወሰደ):</span><br><b>${fmt(ch.buyPrice)}</b> · ${fmtD(ch.intakeDate)}</div>
+    </div>
+    ${ch.sellerIdFront||ch.sellerIdBack?`<div style="display:flex;gap:8px;margin-top:10px">
+      ${ch.sellerIdFront?`<a href="${ch.sellerIdFront}" target="_blank"><img src="${ch.sellerIdFront}" style="height:80px;border-radius:6px;border:1px solid var(--border)"></a>`:''}
+      ${ch.sellerIdBack ?`<a href="${ch.sellerIdBack}"  target="_blank"><img src="${ch.sellerIdBack}"  style="height:80px;border-radius:6px;border:1px solid var(--border)"></a>`:''}
+    </div>`:''}
+    ${sold?`
+    <div class="section-sep"></div>
+    <div class="section-title">🟢 Buyer</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.83rem">
+      <div><span style="color:var(--muted)">ስም:</span><br><b>${ch.buyerName}</b></div>
+      <div><span style="color:var(--muted)">ስልክ:</span><br>${ch.buyerPhone||'—'}</div>
+      <div><span style="color:var(--muted)">ባንክ:</span><br>${ch.buyerBank||'—'}</div>
+      <div><span style="color:var(--muted)">Telegram:</span><br>${ch.buyerTelegram||'—'}</div>
+      <div><span style="color:var(--muted)">ID:</span><br>${idLbl(ch.buyerIdType)} — ${ch.buyerIdNum||'—'}</div>
+      <div><span style="color:var(--muted)">ዋጋ (ተሸጠ):</span><br><b>${fmt(ch.sellPrice)}</b> · ${fmtD(ch.saleDate)}</div>
+      <div><span style="color:var(--muted)">ትርፍ:</span><br><b class="text-green">${fmt(ch.profit)}</b></div>
+      <div><span style="color:var(--muted)">Transfer:</span><br>${ch.transferType==='automatic'?'🤖 Auto':'👤 Owner 7d'}</div>
+    </div>
+    ${ch.buyerIdFront||ch.buyerIdBack?`<div style="display:flex;gap:8px;margin-top:10px">
+      ${ch.buyerIdFront?`<a href="${ch.buyerIdFront}" target="_blank"><img src="${ch.buyerIdFront}" style="height:80px;border-radius:6px;border:1px solid var(--border)"></a>`:''}
+      ${ch.buyerIdBack ?`<a href="${ch.buyerIdBack}"  target="_blank"><img src="${ch.buyerIdBack}"  style="height:80px;border-radius:6px;border:1px solid var(--border)"></a>`:''}
+    </div>`:''}
+    <div class="section-sep"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      ${ch.paymentStatus==='paid'?'<span class="badge badge-green">✅ ብር ተልኳል</span>':'<span class="badge badge-red">❌ ብር አልተላከም</span>'}
+      ${ch.transferStatus==='completed'?'<span class="badge badge-green">✅ Transfer ✓</span>':'<span class="badge badge-yellow">⏳ Transfer Pending</span>'}
+    </div>`:''}
+    <div class="btn-group">
+      ${sold&&ch.paymentStatus!=='paid'?`<button class="btn btn-success btn-sm" onclick="markPaid('${ch.id}');closeModal('detailModal')">✅ ብር ተልኳል</button>`:''}
+      ${sold&&ch.transferStatus!=='completed'?`<button class="btn btn-primary btn-sm" onclick="markTransferred('${ch.id}');closeModal('detailModal')">📦 Transfer ✓</button>`:''}
+      <button class="btn btn-outline btn-sm" onclick="editIntake('${ch.id}')">✏️ አርትዕ</button>
+    </div>`;
+  openModal('detailModal');
+}
+
+function delCh(id) { if(!confirm('ቻናሉን መሰረዝ?')) return; dbDel('channels',id); }
+
+// ── SELLERS ───────────────────────────────────────────────
+function renderSellers() {
+  const chs=state.channels;
+  const rows=state.sellers.map(s=>{
+    const mine=chs.filter(c=>c.sellerName===s.name);
+    const up=mine.filter(c=>c.paymentStatus==='not_paid'&&c.saleDate).length;
+    return `<tr><td><b>${s.name}</b></td><td>${s.phone||'—'}</td><td>${s.bank||'—'}</td>
+      <td>${s.telegram||'—'}</td><td>${idLbl(s.idType)}</td><td>${s.idNum||'—'}</td>
+      <td><span class="badge badge-blue">${mine.length}</span></td>
+      <td>${up?`<span class="badge badge-red">${up} ያልተላኩ</span>`:'<span class="badge badge-green">OK</span>'}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="dbDel('sellers','${s.id}')">🗑️</button></td></tr>`;
+  }).join('');
+  document.getElementById('sellersTable').innerHTML = state.sellers.length
+    ? `<table><thead><tr><th>ስም</th><th>ስልክ</th><th>ባንክ</th><th>Telegram</th><th>ID አይነት</th><th>ID ቁጥር</th><th>ቻናሎች</th><th>ያልተከፈለ</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+    : '<div class="empty">ምንም Seller አልተመዘገበም</div>';
+}
+
+async function addSeller() {
+  const name=document.getElementById('sm_name').value.trim();
+  if(!name) return alert('ስም ያስፈልጋል!');
+  if(state.sellers.find(s=>s.name===name)) return alert('Seller አስቀድሞ አለ!');
+  await dbSet('sellers', uid(), {name,phone:document.getElementById('sm_phone').value.trim(),
+    bank:document.getElementById('sm_bank').value.trim(),telegram:document.getElementById('sm_tg').value.trim(),
+    idType:document.getElementById('sm_idtype').value,idNum:document.getElementById('sm_idnum').value.trim()});
+  ['sm_name','sm_phone','sm_bank','sm_tg','sm_idtype','sm_idnum'].forEach(id=>sv(id,''));
+  closeModal('sellerModal');
+}
+
+// ── BUYERS ────────────────────────────────────────────────
+function renderBuyers() {
+  const chs=state.channels;
+  const rows=state.buyers.map(b=>{
+    const mine=chs.filter(c=>c.buyerName===b.name);
+    const p=mine.filter(c=>c.transferStatus!=='completed').length;
+    return `<tr><td><b>${b.name}</b></td><td>${b.phone||'—'}</td><td>${b.bank||'—'}</td>
+      <td>${b.telegram||'—'}</td><td>${idLbl(b.idType)}</td><td>${b.idNum||'—'}</td>
+      <td><span class="badge badge-blue">${mine.length}</span></td>
+      <td>${p?`<span class="badge badge-yellow">${p} Pending</span>`:'<span class="badge badge-green">OK</span>'}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="dbDel('buyers','${b.id}')">🗑️</button></td></tr>`;
+  }).join('');
+  document.getElementById('buyersTable').innerHTML = state.buyers.length
+    ? `<table><thead><tr><th>ስም</th><th>ስልክ</th><th>ባንክ</th><th>Telegram</th><th>ID አይነት</th><th>ID ቁጥር</th><th>ቻናሎች</th><th>Transfer</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+    : '<div class="empty">ምንም Buyer አልተመዘገበም</div>';
+}
+
+async function addBuyer() {
+  const name=document.getElementById('bm_name').value.trim();
+  if(!name) return alert('ስም ያስፈልጋል!');
+  if(state.buyers.find(b=>b.name===name)) return alert('Buyer አስቀድሞ አለ!');
+  await dbSet('buyers', uid(), {name,phone:document.getElementById('bm_phone').value.trim(),
+    bank:document.getElementById('bm_bank').value.trim(),telegram:document.getElementById('bm_tg').value.trim(),
+    idType:document.getElementById('bm_idtype').value,idNum:document.getElementById('bm_idnum').value.trim()});
+  ['bm_name','bm_phone','bm_bank','bm_tg','bm_idtype','bm_idnum'].forEach(id=>sv(id,''));
+  closeModal('buyerModal');
+}
+
+// ── GLOBAL ────────────────────────────────────────────────
+document.querySelectorAll('.modal-overlay').forEach(el=>
+  el.addEventListener('click', e=>{ if(e.target===el) el.classList.remove('open'); }));
+document.getElementById('navDate').textContent =
+  new Date().toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+</script>
+</body>
+</html>
